@@ -28,8 +28,12 @@ const Products = () => {
     fetchProducts();
   }, []);
 
+  const apiBase = window.location.hostname === "localhost" || window.location.hostname === "127.0.0.1"
+    ? "http://127.0.0.1:8000"
+    : `http://${window.location.hostname}:8000`;
+
   const fetchProducts = () => {
-    fetch("http://127.0.0.1:8000/api/products/")
+    fetch(`${apiBase}/api/products/`)
       .then(res => res.json())
       .then(data => setProducts(data))
       .catch(err => console.error("Error fetching products:", err));
@@ -57,7 +61,7 @@ const Products = () => {
     setIsDeleting(id);
     const token = localStorage.getItem("token");
     try {
-      const res = await fetch(`http://127.0.0.1:8000/api/product/${id}/update/`, {
+      const res = await fetch(`${apiBase}/api/product/delete/${id}/`, {
         method: "DELETE",
         headers: { "Authorization": `Bearer ${token}` }
       });
@@ -93,7 +97,7 @@ const Products = () => {
   const handleUpdate = async (id) => {
     const token = localStorage.getItem("token");
     try {
-      const res = await fetch(`http://127.0.0.1:8000/api/product/${id}/update/`, {
+      const res = await fetch(`${apiBase}/api/product/${id}/update/`, {
         method: "PUT",
         headers: {
           "Content-Type": "application/json",

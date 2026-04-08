@@ -1,17 +1,22 @@
 import React, { useEffect, useState } from "react";
 import { Plus, ShoppingCart, CheckCircle2 } from 'lucide-react';
+import QRCodeModal from "./QRCodeModal";
 
 export const CreateProduct = () => {
   const [product, setProduct] = useState({ name: '',  category: 'Electronics', quantity: 0, price: 0 });
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [successMsg, setSuccessMsg] = useState('');
 
+  const apiBase = window.location.hostname === "localhost" || window.location.hostname === "127.0.0.1"
+    ? "http://127.0.0.1:8000"
+    : `http://${window.location.hostname}:8000`;
+
   const handleCreate = async (e) => {
     e.preventDefault();
     setIsSubmitting(true);
     setSuccessMsg('');
     const token = localStorage.getItem("token");
-    const uri = "http://127.0.0.1:8000/api/product/create/";
+    const uri = `${apiBase}/api/product/create/`;
 
     try {
       const res = await fetch(uri, {
@@ -131,6 +136,8 @@ export const OrderProduct = () => {
   const [products, setProducts] = useState([]);
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [successMsg, setSuccessMsg] = useState('');
+  const [showQR, setShowQR] = useState(false);
+  const [currentOrderId, setCurrentOrderId] = useState(null);
   
   const [order, setOrder] = useState({
     customer_name: "",
@@ -140,12 +147,16 @@ export const OrderProduct = () => {
 
   const [pricePerUnit, setPricePerUnit] = useState(0);
 
+  const apiBase = window.location.hostname === "localhost" || window.location.hostname === "127.0.0.1"
+    ? "http://127.0.0.1:8000"
+    : `http://${window.location.hostname}:8000`;
+
   useEffect(() => {
-    fetch("http://127.0.0.1:8000/api/products/")
+    fetch(`${apiBase}/api/products/`)
       .then(res => res.json())
       .then(data => setProducts(data))
       .catch(err => console.error(err));
-  }, []);
+  }, [apiBase]);
 
   const handleProductChange = (e) => {
     const selectedProduct = products.find(
@@ -170,17 +181,13 @@ export const OrderProduct = () => {
     const token = localStorage.getItem("token");
 
     const orderData = {
-      customer_name: order.customer_name || "Walk-in Customer",
-      items: [
-        {
-          product_name: order.product_name,
-          quantity: order.quantity
-        }
-      ]
+      customer_name: order.customer_name,
+      items: [{ product_name: order.product_name, quantity: order.quantity }]
     };
 
     try {
-      const res = await fetch("http://127.0.0.1:8000/api/order/create/", {
+      // 1. Create the order first (as Pending)
+      const orderRes = await fetch(`${apiBase}/api/order/create/`, {
         method: "POST",
         headers: {
           "Content-Type": "application/json",
@@ -189,27 +196,32 @@ export const OrderProduct = () => {
         body: JSON.stringify(orderData)
       });
 
-      const data = await res.json();
+      const orderResult = await orderRes.json();
+      if (!orderRes.ok) throw new Error(orderResult.error || "Failed to create order");
 
-      if (res.ok) {
-        setSuccessMsg("Order placed successfully!");
-        setOrder({
-          customer_name: "",
-          product_name: "",
-          quantity: 1
-        });
-        setPricePerUnit(0);
-        setTimeout(() => setSuccessMsg(''), 3000);
-      } else {
-        alert(data.error || "Failed to create order");
-      }
+      const orderId = orderResult.data._id;
+      setCurrentOrderId(orderId);
+      setShowQR(true); // Open the Modal for eSewa payment
 
     } catch (err) {
       console.error(err);
+      alert(err.message);
     } finally {
       setIsSubmitting(false);
     }
   };
+
+  const onPaymentFinished = () => {
+    setSuccessMsg("Payment received and order completed!");
+    setOrder({
+      customer_name: "",
+      product_name: "",
+      quantity: 1
+    });
+    setPricePerUnit(0);
+    setTimeout(() => setSuccessMsg(''), 5000);
+  };
+
 
   const totalAmount = order.quantity * pricePerUnit;
 
@@ -233,9 +245,10 @@ export const OrderProduct = () => {
           <div className="p-6 space-y-6">
             <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
               <div className="md:col-span-2">
-                <label className="block text-sm font-medium text-gray-700 mb-1">Customer Name (Optional)</label>
+                <label className="block text-sm font-medium text-gray-700 mb-1">Customer Name</label>
                 <input
                   type="text"
+                  required
                   placeholder="e.g. Jane Doe"
                   value={order.customer_name}
                   onChange={(e) => setOrder({...order, customer_name: e.target.value})}
@@ -284,18 +297,26 @@ export const OrderProduct = () => {
             </div>
           </div>
 
-          <div className="px-6 py-4 bg-gray-50 border-t border-gray-200 flex justify-end">
+          <div className="px-6 py-4 bg-gray-50 border-t border-gray-200 flex justify-end gap-3">
             <button
-              disabled={isSubmitting || !order.product_name}
+              disabled={isSubmitting || !order.product_name || !order.customer_name || !order.quantity}
               type="submit"
-              className="inline-flex items-center gap-2 bg-indigo-600 hover:bg-indigo-700 text-white px-4 py-2 rounded-lg text-sm font-medium transition-colors disabled:opacity-70 disabled:cursor-not-allowed"
+              className="inline-flex items-center gap-2 bg-[#60BB46] hover:bg-[#509D3A] text-white px-6 py-2.5 rounded-lg text-sm font-bold transition-colors disabled:opacity-70 disabled:cursor-not-allowed shadow-sm"
             >
-              <ShoppingCart size={16} />
-              {isSubmitting ? 'Processing...' : 'Complete Order'}
+              <img src="https://esewa.com.np/common/images/esewa_logo.png" alt="eSewa" className="h-4" />
+              {isSubmitting ? 'Processing...' : 'Confirm and Pay with eSewa'}
             </button>
           </div>
         </form>
       </div>
+
+      {showQR && (
+        <QRCodeModal 
+          orderId={currentOrderId} 
+          onClose={() => setShowQR(false)} 
+          onPaymentSuccess={onPaymentFinished}
+        />
+      )}
     </div>
   );
 };

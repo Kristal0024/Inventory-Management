@@ -9,12 +9,16 @@ const Orders = () => {
   const [currentPage, setCurrentPage] = useState(1);
   const itemsPerPage = 10;
 
+  const apiBase = window.location.hostname === "localhost" || window.location.hostname === "127.0.0.1"
+    ? "http://127.0.0.1:8000"
+    : `http://${window.location.hostname}:8000`;
+
   useEffect(() => {
-    fetch("http://127.0.0.1:8000/api/orders/")
+    fetch(`${apiBase}/api/orders/`)
       .then(res => res.json())
       .then(data => setOrders(data))
       .catch(err => console.error("Error fetching orders:", err));
-  }, []);
+  }, [apiBase]);
 
   const filteredOrders = orders.filter(o => 
     o.customer_name.toLowerCase().includes(search.toLowerCase())
@@ -29,6 +33,43 @@ const Orders = () => {
   useEffect(() => {
     setCurrentPage(1);
   }, [search]);
+
+  const handleEsewaPayment = async (orderId) => {
+    try {
+      const res = await fetch(`${apiBase}/api/esewa/initiate/`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ order_id: orderId })
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || "Failed to initiate payment");
+      
+      const form = document.createElement("form");
+      form.setAttribute("method", "POST");
+      form.setAttribute("action", data.esewa_url);
+      
+      const fields = [
+        "amount", "tax_amount", "total_amount", "transaction_uuid", "product_code",
+        "product_service_charge", "product_delivery_charge", "success_url", 
+        "failure_url", "signed_field_names", "signature"
+      ];
+      
+      fields.forEach(field => {
+        const input = document.createElement("input");
+        input.setAttribute("type", "hidden");
+        input.setAttribute("name", field);
+        input.setAttribute("value", data[field]);
+        form.appendChild(input);
+      });
+      
+      document.body.appendChild(form);
+      form.submit();
+      
+    } catch (err) {
+      console.error(err);
+      alert(err.message);
+    }
+  };
 
   return (
     <div className="p-6 max-w-7xl mx-auto font-sans">
@@ -82,8 +123,9 @@ const Orders = () => {
                   const formattedDate = orderDate.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' });
                   const formattedTime = orderDate.toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit' });
                   
-                  const globalIndex = indexOfFirstItem + index;
-                  const orderId = String(globalIndex + 1000).padStart(5, '0');
+                  // Calculate stable ID based on absolute position in the reversed full array
+                  const absoluteIndex = orders.length - 1 - orders.findIndex(o => o._id === order._id);
+                  const orderId = String(absoluteIndex + 1000).padStart(5, '0');
 
                   return (
                     <tr key={order._id} className="hover:bg-gray-50">
@@ -107,7 +149,17 @@ const Orders = () => {
                           <span className="text-sm font-semibold text-gray-900">
                             Rs {parseFloat(order.total_price).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
                           </span>
-                          <span className="text-[10px] font-medium text-emerald-600 uppercase tracking-wider mt-0.5">Paid</span>
+                          <span className={`text-[10px] font-bold uppercase tracking-wider mt-0.5 ${order.payment_status === 'Paid' ? 'text-emerald-600' : 'text-amber-500'}`}>
+                            {order.payment_status === 'Paid' ? '✓ Paid' : 'Pending'}
+                          </span>
+                          {order.payment_status !== 'Paid' && (
+                            <button
+                              onClick={() => handleEsewaPayment(order._id)}
+                              className="mt-2 text-[10px] bg-[#60BB46] hover:bg-[#509D3A] text-white px-2 py-1 rounded font-bold transition-colors shadow-sm"
+                            >
+                              Pay Now
+                            </button>
+                          )}
                         </div>
                       </td>
                       <td className="px-6 py-3">

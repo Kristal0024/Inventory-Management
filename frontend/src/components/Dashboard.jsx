@@ -31,52 +31,105 @@ import { CreateProduct, OrderProduct } from "./ProductForms";
 import Settings from "./Settings";
 import Auth from "./Auth";
 
-const data = [
-  { name: "Jan", sales: 4000, orders: 240 },
-  { name: "Feb", sales: 3000, orders: 139 },
-  { name: "Mar", sales: 2000, orders: 980 },
-  { name: "Apr", sales: 2780, orders: 390 },
-  { name: "May", sales: 1890, orders: 480 },
-  { name: "Jun", sales: 2390, orders: 380 },
-];
 
-const StatCard = ({ title, value, icon, trend, type }) => (
-  <div className="bg-white p-5 rounded-xl border border-gray-200 shadow-sm flex items-center justify-between">
-    <div>
-      <p className="text-sm font-medium text-gray-500 mb-1">{title}</p>
-      <h3 className="text-2xl font-bold text-gray-900">{value}</h3>
-      {trend && (
-        <p className={`text-sm mt-2 font-medium ${type === 'positive' ? 'text-emerald-600' : 'text-rose-600'}`}>
-          {trend} 
-          <span className="text-gray-400 ml-1 font-normal text-xs">vs last month</span>
-        </p>
-      )}
+
+const StatCard = ({ title, value, icon, trend, type }) => {
+  const isPositiveTrend = trend && trend.startsWith('+');
+  const isNegativeTrend = trend && trend.startsWith('-');
+  return (
+    <div className="bg-white p-5 rounded-xl border border-gray-200 shadow-sm flex items-center justify-between">
+      <div>
+        <p className="text-sm font-medium text-gray-500 mb-1">{title}</p>
+        <h3 className="text-2xl font-bold text-gray-900">{value}</h3>
+        {trend && (
+          <p className={`text-sm mt-2 font-medium ${isPositiveTrend ? 'text-emerald-600' : isNegativeTrend ? 'text-rose-600' : 'text-gray-500'}`}>
+            {trend} 
+            <span className="text-gray-400 ml-1 font-normal text-xs">vs last month</span>
+          </p>
+        )}
+      </div>
+      <div className={`p-4 rounded-xl ${
+        type === 'positive' ? 'bg-emerald-50 text-emerald-600' :
+        type === 'warning' ? 'bg-amber-50 text-amber-600' :
+        'bg-indigo-50 text-indigo-600'
+      }`}>
+        {icon}
+      </div>
     </div>
-    <div className={`p-4 rounded-xl ${
-      type === 'positive' ? 'bg-emerald-50 text-emerald-600' :
-      type === 'warning' ? 'bg-amber-50 text-amber-600' :
-      'bg-indigo-50 text-indigo-600'
-    }`}>
-      {icon}
-    </div>
-  </div>
-);
+  );
+};
 
 const DashboardHome = () => {
   const [stats, setStats] = useState({
     products: 0,
-    orders: 0
+    orders: 0,
+    revenue: 0,
+    lowStock: 0,
+    trends: {
+      orders: null,
+      revenue: null
+    }
   });
+  const [chartData, setChartData] = useState([]);
 
   useEffect(() => {
     Promise.all([
       fetch("http://127.0.0.1:8000/api/products/").then(res => res.json()),
       fetch("http://127.0.0.1:8000/api/orders/").then(res => res.json())
     ]).then(([productsData, ordersData]) => {
+      
+      const lowStockCount = productsData.filter(p => p.quantity <= 5).length;
+      const totalRevenue = ordersData.reduce((sum, order) => sum + Number(order.total_price || 0), 0);
+      
+      const months = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
+      const last6Months = [];
+      const d = new Date();
+      d.setDate(1);
+      for (let i = 5; i >= 0; i--) {
+         const monthDate = new Date(d.getFullYear(), d.getMonth() - i, 1);
+         last6Months.push({
+           name: months[monthDate.getMonth()],
+           month: monthDate.getMonth(),
+           year: monthDate.getFullYear(),
+           sales: 0,
+           orders: 0
+         });
+      }
+
+      ordersData.forEach(order => {
+        const date = new Date(order.created_at);
+        const month = date.getMonth();
+        const year = date.getFullYear();
+        
+        const monthData = last6Months.find(d => d.month === month && d.year === year);
+        if (monthData) {
+          monthData.sales += Number(order.total_price || 0);
+          monthData.orders += 1;
+        }
+      });
+
+      const currentMonth = last6Months[5];
+      const prevMonth = last6Months[4];
+      
+      const calculateTrend = (curr, prev) => {
+        if (prev === 0) return curr > 0 ? "+100%" : "0%";
+        if (curr === prev) return "0%";
+        const diff = ((curr - prev) / prev) * 100;
+        return `${diff > 0 ? '+' : ''}${diff.toFixed(1)}%`;
+      };
+
+      setChartData(last6Months);
       setStats({
         products: productsData.length || 0,
-        orders: ordersData.length || 0
+        orders: ordersData.length || 0,
+        revenue: totalRevenue,
+        lowStock: lowStockCount,
+        trends: {
+          orders: calculateTrend(currentMonth.orders, prevMonth.orders),
+          revenue: calculateTrend(currentMonth.sales, prevMonth.sales)
+        }
       });
+
     }).catch(err => console.error(err));
   }, []);
 
@@ -103,28 +156,26 @@ const DashboardHome = () => {
           title="Total Products" 
           value={stats.products.toLocaleString()} 
           icon={<Package size={24} />} 
-          trend="+12%"
           type="primary"
         />
         <StatCard 
           title="Total Orders" 
           value={stats.orders.toLocaleString()} 
           icon={<ShoppingCart size={24} />} 
-          trend="+5.2%"
+          trend={stats.trends.orders}
           type="primary"
         />
         <StatCard 
           title="Total Revenue" 
-          value="Rs 45,231" 
+          value={`Rs ${stats.revenue.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`} 
           icon={<TrendingUp size={24} />} 
-          trend="+18%"
+          trend={stats.trends.revenue}
           type="positive"
         />
         <StatCard 
           title="Low Stock Items" 
-          value="12" 
+          value={stats.lowStock.toString()} 
           icon={<AlertTriangle size={24} />} 
-          trend="-2"
           type="warning"
         />
       </div>
@@ -135,12 +186,11 @@ const DashboardHome = () => {
             <h3 className="text-lg font-bold text-gray-900">Revenue Overview</h3>
             <select className="text-sm border border-gray-200 rounded-lg px-3 py-1.5 bg-white text-gray-600 outline-none">
               <option>Last 6 Months</option>
-              <option>This Year</option>
             </select>
           </div>
           <div className="h-72">
             <ResponsiveContainer width="100%" height="100%">
-              <BarChart data={data}>
+              <BarChart data={chartData}>
                 <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#E5E7EB" />
                 <XAxis dataKey="name" axisLine={false} tickLine={false} tick={{fill: '#6B7280', fontSize: 12}} dy={10} />
                 <YAxis axisLine={false} tickLine={false} tick={{fill: '#6B7280', fontSize: 12}} dx={-10} />
@@ -155,7 +205,7 @@ const DashboardHome = () => {
           <h3 className="text-lg font-bold text-gray-900 mb-6">Order Trends</h3>
           <div className="h-72">
             <ResponsiveContainer width="100%" height="100%">
-              <LineChart data={data}>
+              <LineChart data={chartData}>
                 <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#E5E7EB" />
                 <XAxis dataKey="name" axisLine={false} tickLine={false} tick={{fill: '#6B7280', fontSize: 12}} dy={10} />
                 <Tooltip contentStyle={{borderRadius: '8px', border: 'none', boxShadow: '0 4px 6px -1px rgb(0 0 0 / 0.1)'}} />

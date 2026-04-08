@@ -14,9 +14,13 @@ const Auth = ({ setToken }) => {
     setIsSubmitting(true);
 
     try {
+      const apiBase = window.location.hostname === "localhost" || window.location.hostname === "127.0.0.1"
+        ? "http://127.0.0.1:8000"
+        : `http://${window.location.hostname}:8000`;
+        
       const url = isLogin
-        ? "http://127.0.0.1:8000/auth/login/"       
-        : "http://127.0.0.1:8000/auth/signup/";     
+        ? `${apiBase}/auth/login/`       
+        : `${apiBase}/auth/signup/`;     
 
       const res = await fetch(url, {
         method: "POST",
